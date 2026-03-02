@@ -1,0 +1,62 @@
+#!/bin/bash
+
+echo "🧹 Nettoyage complet..."
+docker compose down -v
+docker system prune -f
+
+echo "🏗️ Reconstruction de l'image..."
+docker build -t timesheet-draoui.khalil-4nids3:latest .
+
+echo "📝 Création du nouveau docker-compose.yml..."
+cat > docker-compose.yml << 'EOF'
+services:
+  mysqldb:
+    image: mysql:8.0
+    container_name: timesheet-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: pass
+      MYSQL_DATABASE: timesheetdb
+    ports:
+      - "3307:3306"
+    volumes:
+      - timesheetvol:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ppass"]
+      timeout: 10s
+      retries: 10
+
+  timesheet:
+    depends_on:
+      mysqldb:
+        condition: service_healthy
+    image: timesheet-draoui.khalil-4nids3:latest
+    container_name: timesheet-app
+    restart: on-failure:5
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysqldb:3306/timesheetdb?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: pass
+      SERVER_PORT: 8082
+    stdin_open: true
+    tty: true
+
+volumes:
+  timesheetvol:
+EOF
+
+echo "🚀 Démarrage des services..."
+docker compose up -d
+
+echo "📋 Logs de MySQL..."
+sleep 10
+docker logs timesheet-mysql
+
+echo "📋 Logs de l'application..."
+sleep 10
+docker logs timesheet-app
+
+echo "✅ Test de l'application..."
+curl http://localhost:8082 || echo "❌ Application pas encore prête, vérifiez les logs"
